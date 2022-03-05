@@ -1,8 +1,12 @@
-FROM nginx:stable
+FROM node:12
 
-## Step 1:
-RUN rm /usr/share/nginx/html/index.html
+WORKDIR /usr/src/app
 
-## Step 2:
-# Copy source code to working directory
-COPY app/index.html /usr/share/nginx/html
+COPY package*.json ./
+
+RUN npm install
+
+COPY . .
+
+EXPOSE 8080
+CMD [ "node", "app.js" ]

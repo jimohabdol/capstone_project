@@ -1,45 +1,42 @@
+# Use the latest 2.1 version of CircleCI pipeline process engine.
+# See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
 orbs:
-  docker: circleci/docker@2.0.1
-  kubernetes: circleci/kubernetes@0.12.0
-  aws-eks: circleci/aws-eks@0.2.3
+  docker: circleci/docker@2.0.2
+  aws-eks: circleci/aws-eks@2.1.1
+  kubernetes: circleci/kubernetes@1.3
 
 jobs:
-
-  lint-app:
+  lint-code:
     docker:
-      - image: python:3.7.3-stretch
-    working_directory: ~/repo
+      - image: circleci/node:13.8.0
     steps:
       - checkout
       - run:
-          name: install dependencies
+          name: install eslint
           command: |
-            make install
+            sudo npm i -g eslint && sudo npm install
       - run:
           name: run lint
           command: |
-            make lint
+            . run_linter.sh
 
-  build-push-images:
-    executor: docker/docker
+  build-and-push:
+    machine: true
     steps:
-      - setup_remote_docker
       - checkout
-      - docker/check
-      - docker/build:
-          image: jimohabdol/capstone-project
-          tag: "latest"
-      - docker/push:
-          digest-path: /tmp/digest.txt
-          image: jimohabdol/capstone-project
-          tag: "latest"
-      - run:
-          command: |
-            echo "Digest is: $(</tmp/digest.txt)"
+      - run: |
+          docker login --username jimohabdol
 
-  test-cluster:
-    executor: aws-eks/python3
+      # build the application image
+      - run: docker build -t jimohabdol/capstone-project .
+
+      # deploy the image
+      - run: docker push jimohabdol/capstone-project
+
+  deploy-image:
+    docker:
+      - image: 'cimg/python:3.10'
     parameters:
       cluster-name:
         description: |
@@ -50,57 +47,27 @@ jobs:
       - aws-eks/update-kubeconfig-with-authenticator:
           cluster-name: << parameters.cluster-name >>
       - run:
-          name: Kube cluster
           command: |
             kubectl get services
 
-  run-deployment:
-    executor: aws-eks/python3
-    parameters:
-      cluster-name:
-        description: |
-          Name of the EKS cluster
-        type: string
-    steps:
-      - checkout
-      - aws-eks/update-kubeconfig-with-authenticator:
-          cluster-name: << parameters.cluster-name >>
-          install-kubectl: true
-      - kubernetes/create-or-update-resource:
-          get-rollout-status: true
-          resource-file-path: deployment.yml
-          resource-name: deployment/capstone-site
+            dockerpath="jimohabdol/capstone-project"
+            kubectl run --image=jimohabdol/capstone-project capstone --port=8080
+            kubectl get pod
 
-  test-deployment:
-    executor: aws-eks/python3
-    parameters:
-      cluster-name:
-        description: |
-          Name of the EKS cluster
-        type: string
-    steps:
-      - kubernetes/install
-      - aws-eks/update-kubeconfig-with-authenticator:
-          cluster-name: << parameters.cluster-name >>
-      - run:
-          name: Kube cluster
-          command: |
-            kubectl get svc
-            kubectl get nodes
-            kubectl get deployment
+            # kubectl port-forward pod/capstone 8080:8080
+
+          name: Deploy image
 
 workflows:
   default:
     jobs:
-      - lint-app
-      - build-push-images:
-          requires: [lint-app]
-      - test-cluster:
-          cluster-name: eks-capstone-project
-          requires: [build-push-images]
-      - run-deployment:
-          cluster-name: eks-capstone-project
-          requires: [test-cluster]
-      - test-deployment:
-          cluster-name: eks-capstone-project
-          requires: [run-deployment]
+      - lint-code
+      - build-and-push:
+          requires: [lint-code]
+      - aws-eks/create-cluster:
+          cluster-name: my-eks-green
+          requires: [build-and-push]
+      - deploy-image:
+          cluster-name: my-eks-green
+          requires:
+            - aws-eks/create-cluster
