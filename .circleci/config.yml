@@ -71,3 +71,4 @@ workflows:
           cluster-name: my-eks-green
           requires:
             - aws-eks/create-cluster
+          
