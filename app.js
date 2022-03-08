@@ -5,7 +5,7 @@ const app = express();
 
 app.use(express.static(path.join(__dirname, 'html')));
 
-const PORT = 8080;
+const PORT  8080;
 
 app.listen(PORT, () => {
   console.log(`Server is listening on Port${PORT}`);
